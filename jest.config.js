@@ -1,9 +1,37 @@
 module.exports = {
+  preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/test'],
-  testMatch: ['**/*.test.ts'],
-  transform: {
-    '^.+\\.tsx?$': 'ts-jest'
+  rootDir: '.',
+  testMatch: ['**/tests/**/*.test.ts'],
+  collectCoverageFrom: [
+    'src/**/*.ts',
+    '!src/**/*.d.ts',
+    '!src/index.ts', // Placeholder file
+  ],
+  coverageThreshold: {
+    global: {
+      branches: 50,
+      functions: 50,
+      lines: 50,
+      statements: 50,
+    },
   },
-  setupFilesAfterEnv: ['aws-cdk-lib/testhelpers/jest-autoclean'],
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', {
+      tsconfig: {
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true,
+      },
+    }],
+  },
+  globals: {
+    'ts-jest': {
+      isolatedModules: true,
+    },
+  },
+  testTimeout: 10000,
 };
