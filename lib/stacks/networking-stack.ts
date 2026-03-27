@@ -14,7 +14,7 @@ interface NetworkingStackProps extends cdk.StackProps {
  * 1. VPC: Virtual Private Cloud (10.0.0.0/16) across 2 Availability Zones
  * 2. Subnets: Private subnets only (no internet gateway, no NAT gateway)
  * 3. Security Groups: Lambda security group with restricted egress
- * 4. VPC Endpoints: 8 AWS service endpoints (S3, DynamoDB, CloudWatch Logs, SNS, Secrets Manager, Glue, Athena, SES)
+ * 4. VPC Endpoints: 7 AWS service endpoints (S3, CloudWatch Logs, SNS, Secrets Manager, Glue, Athena, KMS)
  *
  * Security Design:
  * - NO internet access (no IGW, no NAT)
@@ -153,7 +153,7 @@ export class NetworkingStack extends cdk.Stack {
     this.lambdaSecurityGroup.addEgressRule(
       this.vpcEndpointSecurityGroup,
       ec2.Port.tcp(443),
-      'Allow HTTPS to VPC endpoints (CloudWatch, SNS, Secrets Manager, Glue, Athena, SES)'
+      'Allow HTTPS to VPC endpoints (CloudWatch, SNS, Secrets Manager, Glue, Athena, KMS)'
     );
 
     // Egress Rule 2: Allow Lambda to communicate with Slack (external HTTPS only)
@@ -290,23 +290,7 @@ export class NetworkingStack extends cdk.Stack {
       },
     });
 
-    // ---- Interface Endpoint 6: Amazon SES (Simple Email Service) ----
-    /**
-     * Purpose: Lambda sends email alerts via SES
-     * Type: Interface Endpoint
-     * DNS: email.{region}.amazonaws.com (privateDnsEnabled)
-     * Security Group: vpcEndpointSecurityGroup
-     * Usage: SNS-to-Email Lambda sends alerts via SES
-     */
-    this.vpc.addInterfaceEndpoint('SESEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.SES,
-      privateDnsEnabled: true,
-      subnets: {
-        subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
-      },
-    });
-
-    // ---- Interface Endpoint 7: KMS (Key Management Service) ----
+    // ---- Interface Endpoint 6: KMS (Key Management Service) ----
     /**
      * Purpose: Lambda decrypts secrets and S3 objects encrypted with KMS keys
      * Type: Interface Endpoint
@@ -322,7 +306,7 @@ export class NetworkingStack extends cdk.Stack {
       },
     });
 
-    // ---- Interface Endpoint 8: CloudWatch Monitoring ----
+    // ---- Interface Endpoint 7: CloudWatch Monitoring ----
     /**
      * Purpose: Lambda publishes custom metrics to CloudWatch
      * Type: Interface Endpoint
@@ -351,7 +335,6 @@ export class NetworkingStack extends cdk.Stack {
       'SecretsManagerEndpoint',
       'GlueEndpoint',
       'AthenaEndpoint',
-      'SESEndpoint',
       'KMSEndpoint',
       'CloudWatchMonitoringEndpoint',
     ];
