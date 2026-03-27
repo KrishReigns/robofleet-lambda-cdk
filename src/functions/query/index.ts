@@ -82,7 +82,7 @@ async function executeAthenaQuery(
     });
 
     const response = await athenaClient.send(getCommand);
-    queryState = response.QueryExecution?.Status?.State || 'UNKNOWN';
+    queryState = (response.QueryExecution?.Status?.State as QueryExecutionState) || 'QUEUED';
 
     if (queryState === 'SUCCEEDED') {
       console.log('Query succeeded', { queryExecutionId });

@@ -115,6 +115,11 @@ export const handler = async (event: LambdaEvent) => {
       telemetry = event as TelemetryEvent;
     }
 
+    // Guard against undefined telemetry
+    if (!telemetry) {
+      throw new Error('Failed to parse telemetry data');
+    }
+
     // Validate required fields
     if (!telemetry.device_id) {
       throw new Error('Missing required field: device_id');
