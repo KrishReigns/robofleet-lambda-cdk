@@ -172,7 +172,7 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: ingestLogGroup,
-      reservedConcurrentExecutions: 10,
+      reservedConcurrentExecutions: 0,
       environment: {
         DATA_LAKE_BUCKET: dataLakeBucket.bucketName,
         LOG_LEVEL: 'INFO',
@@ -215,7 +215,7 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: queryLogGroup,
-      reservedConcurrentExecutions: 5,
+      reservedConcurrentExecutions: 0,
       environment: {
         ATHENA_OUTPUT_BUCKET: athenaResultsBucket.bucketName,
         GLUE_DATABASE: glueDatabase,
@@ -259,7 +259,7 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: processingLogGroup,
-      reservedConcurrentExecutions: 2,
+      reservedConcurrentExecutions: 0,
       environment: {
         DATA_LAKE_BUCKET: dataLakeBucket.bucketName,
         GLUE_DATABASE: glueDatabase,
@@ -300,7 +300,7 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: snsToSlackLogGroup,
-      reservedConcurrentExecutions: 2,
+      reservedConcurrentExecutions: 0,
       environment: {
         SLACK_WEBHOOK_SECRET: 'robofleet/slack-webhook',
         ALERTS_TOPIC_ARN: this.alertsTopic.topicArn,
@@ -343,7 +343,7 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: snsToEmailLogGroup,
-      reservedConcurrentExecutions: 2,
+      reservedConcurrentExecutions: 0,
       environment: {
         EMAIL_CONFIG_SECRET: 'robofleet/email-config',
         ALERTS_TOPIC_ARN: this.alertsTopic.topicArn,
