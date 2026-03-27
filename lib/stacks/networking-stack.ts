@@ -77,13 +77,13 @@ export class NetworkingStack extends cdk.Stack {
       subnetConfiguration: [
         {
           name: 'Public',
-          cidrMask: 24,
           subnetType: ec2.SubnetType.PUBLIC,
+          cidrMask: 24,
         },
         {
           name: 'Private',
-          cidrMask: 24,
           subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+          cidrMask: 24,
         },
       ],
       enableDnsHostnames: true,
@@ -352,9 +352,9 @@ export class NetworkingStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'PrivateSubnets', {
-      value: this.vpc.privateSubnets.map((subnet) => subnet.subnetId).join(','),
+      value: this.vpc.isolatedSubnets.map((subnet) => subnet.subnetId).join(','),
       exportName: `${this.stackName}-PrivateSubnets`,
-      description: 'Private subnet IDs for Lambda',
+      description: 'Private subnet IDs (isolated) for Lambda',
     });
 
     new cdk.CfnOutput(this, 'LambdaSecurityGroupId', {
