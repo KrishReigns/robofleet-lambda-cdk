@@ -153,6 +153,17 @@ export class SecurityStack extends cdk.Stack {
       ],
     }));
 
+    // VPC permissions: Create/manage ENIs for VPC deployment
+    this.ingestRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ec2:CreateNetworkInterface',
+        'ec2:DescribeNetworkInterfaces',
+        'ec2:DeleteNetworkInterface',
+      ],
+      resources: ['*'],
+    }));
+
     // ---- ROLE 2: QUERY LAMBDA ----
     // Purpose: Execute Athena SQL queries on S3 data
     // What it needs:
@@ -222,6 +233,17 @@ export class SecurityStack extends cdk.Stack {
       ],
     }));
 
+    // VPC permissions: Create/manage ENIs for VPC deployment
+    this.queryRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ec2:CreateNetworkInterface',
+        'ec2:DescribeNetworkInterfaces',
+        'ec2:DeleteNetworkInterface',
+      ],
+      resources: ['*'],
+    }));
+
     // ---- ROLE 3: PROCESSING LAMBDA ----
     // Purpose: Process Glue data, prepare for analytics
     // What it needs:
@@ -270,6 +292,17 @@ export class SecurityStack extends cdk.Stack {
       ],
     }));
 
+    // VPC permissions: Create/manage ENIs for VPC deployment
+    this.processingRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ec2:CreateNetworkInterface',
+        'ec2:DescribeNetworkInterfaces',
+        'ec2:DeleteNetworkInterface',
+      ],
+      resources: ['*'],
+    }));
+
     // ---- ROLE 4: SNS-TO-SLACK LAMBDA ----
     // Purpose: Convert CloudWatch alarms → Slack notifications
     // What it needs:
@@ -314,6 +347,17 @@ export class SecurityStack extends cdk.Stack {
       resources: [
         `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/sns-to-slack:*`,
       ],
+    }));
+
+    // VPC permissions: Create/manage ENIs for VPC deployment
+    this.snsToSlackRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ec2:CreateNetworkInterface',
+        'ec2:DescribeNetworkInterfaces',
+        'ec2:DeleteNetworkInterface',
+      ],
+      resources: ['*'],
     }));
 
     // ---- ROLE 5: SNS-TO-EMAIL LAMBDA ----
@@ -373,6 +417,17 @@ export class SecurityStack extends cdk.Stack {
       resources: [
         `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/sns-to-email:*`,
       ],
+    }));
+
+    // VPC permissions: Create/manage ENIs for VPC deployment
+    this.snsToEmailRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ec2:CreateNetworkInterface',
+        'ec2:DescribeNetworkInterfaces',
+        'ec2:DeleteNetworkInterface',
+      ],
+      resources: ['*'],
     }));
 
     // ---- ROLE 6: GLUE SERVICE ROLE ----
