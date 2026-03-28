@@ -26,12 +26,8 @@ module.exports = {
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
       },
-    }],
-  },
-  globals: {
-    'ts-jest': {
       isolatedModules: true,
-    },
+    }],
   },
   testTimeout: 10000,
 };

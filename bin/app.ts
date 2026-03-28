@@ -45,13 +45,14 @@ const networkingStack = new NetworkingStack(app, 'RobofleetNetworkingStack', {
 // Explicit dependency: NetworkingStack depends on SecurityStack
 networkingStack.addDependency(securityStack);
 
-// Stack 3: Storage - Create S3 buckets, Glue database and table
-// Dependencies: SecurityStack (appKey for S3 encryption, glueServiceRole)
+// Stack 3: Storage - Create S3 buckets, Glue database and table, Athena workgroup
+// Dependencies: SecurityStack (appKey for S3 encryption, glueServiceRole, athenaServiceRole)
 const storageStack = new StorageStack(app, 'RobofleetStorageStack', {
   env,
   appKey: securityStack.appKey,
   glueServiceRole: securityStack.glueServiceRole,
-  description: 'Robofleet data lake storage (S3 buckets, Glue database and tables)',
+  athenaServiceRole: securityStack.athenaServiceRole,
+  description: 'Robofleet data lake storage (S3 buckets, Glue database, tables, and Athena workgroup)',
   stackName: 'robofleet-storage-stack',
 });
 
@@ -59,7 +60,7 @@ const storageStack = new StorageStack(app, 'RobofleetStorageStack', {
 storageStack.addDependency(securityStack);
 
 // Stack 4: Compute - Create Lambda functions, SNS topics, CloudWatch monitoring
-// Dependencies: SecurityStack (execution roles), NetworkingStack (VPC, security groups), StorageStack (S3 buckets, Glue database)
+// Dependencies: SecurityStack (execution roles, KMS key), NetworkingStack (VPC, security groups), StorageStack (S3 buckets, Glue database)
 const computeStack = new ComputeStack(app, 'RobofleetComputeStack', {
   env,
   vpc: networkingStack.vpc,
@@ -71,8 +72,9 @@ const computeStack = new ComputeStack(app, 'RobofleetComputeStack', {
   snsToEmailRole: securityStack.snsToEmailRole,
   dataLakeBucket: storageStack.dataLakeBucket,
   athenaResultsBucket: storageStack.athenaResultsBucket,
- glueDatabase: storageStack.glueDatabaseName,
+  glueDatabase: storageStack.glueDatabaseName,
   deviceTelemetryTable: storageStack.deviceTelemetryTableName,
+  appKey: securityStack.appKey,
   description: 'Robofleet compute resources (Lambda functions, SNS, CloudWatch)',
   stackName: 'robofleet-compute-stack',
 });

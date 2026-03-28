@@ -179,6 +179,15 @@ export class NetworkingStack extends cdk.Stack {
       'Allow DNS queries to AWS resolver'
     );
 
+    // Egress Rule 4: Allow Lambda to communicate with Gateway Endpoints (S3, DynamoDB)
+    // Gateway endpoints work via route tables, but security group still needs to allow the traffic
+    // Since Lambda is in isolated subnet with no IGW, all HTTPS traffic must go through VPC endpoints
+    this.lambdaSecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(443),
+      'Allow all outbound HTTPS (routed through VPC endpoints via route tables)'
+    );
+
     // ============================================================================
     // VPC ENDPOINTS - Access AWS services without internet
     // ============================================================================
@@ -201,6 +210,7 @@ export class NetworkingStack extends cdk.Stack {
      */
     this.vpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
+      subnets: [{ subnets: this.vpc.isolatedSubnets }],
     });
 
     // ---- Gateway Endpoint 2: DynamoDB ----
@@ -210,6 +220,7 @@ export class NetworkingStack extends cdk.Stack {
      */
     this.vpc.addGatewayEndpoint('DynamoDBEndpoint', {
       service: ec2.GatewayVpcEndpointAwsService.DYNAMODB,
+      subnets: [{ subnets: this.vpc.isolatedSubnets }],
     });
 
     // ---- Interface Endpoint 1: CloudWatch Logs ----
@@ -225,6 +236,7 @@ export class NetworkingStack extends cdk.Stack {
       subnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
+      securityGroups: [this.vpcEndpointSecurityGroup],
     });
 
     // ---- Interface Endpoint 2: SNS (Simple Notification Service) ----
@@ -240,6 +252,7 @@ export class NetworkingStack extends cdk.Stack {
       subnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
+      securityGroups: [this.vpcEndpointSecurityGroup],
     });
 
     // ---- Interface Endpoint 3: Secrets Manager ----
@@ -256,6 +269,7 @@ export class NetworkingStack extends cdk.Stack {
       subnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
+      securityGroups: [this.vpcEndpointSecurityGroup],
     });
 
     // ---- Interface Endpoint 4: AWS Glue ----
@@ -272,6 +286,7 @@ export class NetworkingStack extends cdk.Stack {
       subnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
+      securityGroups: [this.vpcEndpointSecurityGroup],
     });
 
     // ---- Interface Endpoint 5: Amazon Athena ----
@@ -288,6 +303,7 @@ export class NetworkingStack extends cdk.Stack {
       subnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
+      securityGroups: [this.vpcEndpointSecurityGroup],
     });
 
     // ---- Interface Endpoint 6: KMS (Key Management Service) ----
@@ -304,6 +320,7 @@ export class NetworkingStack extends cdk.Stack {
       subnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
+      securityGroups: [this.vpcEndpointSecurityGroup],
     });
 
     // ---- Interface Endpoint 7: CloudWatch Monitoring ----
@@ -320,27 +337,21 @@ export class NetworkingStack extends cdk.Stack {
       subnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
+      securityGroups: [this.vpcEndpointSecurityGroup],
     });
 
     // ============================================================================
-    // VPC ENDPOINT SECURITY - Attach security group to endpoints
+    // VPC ENDPOINT SECURITY - Security groups are now properly attached
     // ============================================================================
     /**
-     * All interface endpoints need the vpcEndpointSecurityGroup attached
-     * This allows Lambda (via lambdaSecurityGroup) to communicate with endpoints
+     * All interface endpoints now have the vpcEndpointSecurityGroup attached
+     * This allows Lambda (via lambdaSecurityGroup) to communicate with endpoints on port 443
+     *
+     * Security group flow:
+     * 1. Lambda has egress rule allowing port 443 to vpcEndpointSecurityGroup
+     * 2. vpcEndpointSecurityGroup has ingress rule allowing port 443 from VPC (10.0.0.0/16)
+     * 3. Each interface endpoint is assigned vpcEndpointSecurityGroup for proper connectivity
      */
-    const endpointIds = [
-      'CloudWatchLogsEndpoint',
-      'SNSEndpoint',
-      'SecretsManagerEndpoint',
-      'GlueEndpoint',
-      'AthenaEndpoint',
-      'KMSEndpoint',
-      'CloudWatchMonitoringEndpoint',
-    ];
-
-    // Security groups are attached via endpoint creation (see endpoint definitions above)
-    // Each endpoint was created with vpcEndpointSecurityGroup in its configuration
 
     // ============================================================================
     // STACK OUTPUTS - Export for other stacks to reference

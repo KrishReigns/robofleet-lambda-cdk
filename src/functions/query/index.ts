@@ -31,7 +31,7 @@ const athenaClient = new AthenaClient({ region: process.env.AWS_REGION });
 // Environment variables
 const RESULTS_BUCKET = process.env.ATHENA_RESULTS_BUCKET || 'robofleet-athena-results';
 const DATABASE = process.env.GLUE_DATABASE || 'robofleet_db';
-const WORKGROUP = 'robofleet-workgroup';
+const WORKGROUP = process.env.ATHENA_WORKGROUP || 'robofleet-workgroup-v3';
 
 /**
  * Type definitions
@@ -50,12 +50,11 @@ async function executeAthenaQuery(
   timeoutSeconds: number = 30
 ): Promise<string> {
   // Start query execution
+  // Note: When using a WorkGroup with EnforceWorkGroupConfiguration=true,
+  // don't pass ResultConfiguration - let the workgroup's config take precedence
   const startCommand = new StartQueryExecutionCommand({
     QueryString: sqlQuery,
     QueryExecutionContext: { Database: DATABASE },
-    ResultConfiguration: {
-      OutputLocation: `s3://${RESULTS_BUCKET}/`,
-    },
     WorkGroup: WORKGROUP,
   });
 

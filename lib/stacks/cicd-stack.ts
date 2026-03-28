@@ -42,7 +42,7 @@ export class CICDStack extends cdk.Stack {
   public readonly pipeline: codepipeline.Pipeline;
   public readonly buildProject: codebuild.PipelineProject;
   public readonly repository: codecommit.Repository;
-  public readonly artifactsBucket: s3.Bucket;
+  public readonly artifactsBucket: s3.IBucket;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -57,21 +57,14 @@ export class CICDStack extends cdk.Stack {
      * Versioning: Enabled for artifact history
      * Lifecycle: Delete artifacts after 30 days (pipeline only uses latest)
      * Access: CodePipeline and CodeBuild only
+     *
+     * Import existing bucket to avoid "already exists" CloudFormation errors
      */
-    this.artifactsBucket = new s3.Bucket(this, 'ArtifactsBucket', {
-      bucketName: `robofleet-cicd-artifacts-${cdk.Stack.of(this).account}`,
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      versioned: true,
-      enforceSSL: true,
-      lifecycleRules: [
-        {
-          noncurrentVersionExpiration: cdk.Duration.days(30),
-          expiration: cdk.Duration.days(30),
-        },
-      ],
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
+    this.artifactsBucket = s3.Bucket.fromBucketName(
+      this,
+      'ArtifactsBucket',
+      `robofleet-cicd-artifacts-${cdk.Stack.of(this).account}`
+    );
 
     // ============================================================================
     // CODECOMMIT REPOSITORY - Source control

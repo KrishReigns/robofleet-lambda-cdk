@@ -30,6 +30,7 @@ export class SecurityStack extends cdk.Stack {
   public readonly snsToSlackRole: iam.Role;
   public readonly snsToEmailRole: iam.Role;
   public readonly glueServiceRole: iam.Role;
+  public readonly athenaServiceRole: iam.IRole;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -109,17 +110,15 @@ export class SecurityStack extends cdk.Stack {
     });
 
     // S3 permissions: Write telemetry files to data lake
-    // Note: StorageStack will grant specific bucket permissions
     // This policy allows S3 operations with KMS encryption requirement
     this.ingestRole.addToPrincipalPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         's3:PutObject',      // Upload telemetry files
         's3:GetObject',      // Read (for testing/validation)
-        's3:ListBucket',     // List bucket contents
       ],
-      // Allow all S3 buckets but require KMS encryption
-      resources: ['arn:aws:s3:::*'],
+      // Allow robofleet data lake bucket objects with KMS encryption requirement
+      resources: ['arn:aws:s3:::robofleet-data-lake-*/*'],
       // CRITICAL: Require encryption with our KMS key
       conditions: {
         'StringEquals': {
@@ -127,6 +126,14 @@ export class SecurityStack extends cdk.Stack {
           's3:x-amz-server-side-encryption-aws-kms-key-arn': this.appKey.keyArn,
         },
       },
+    }));
+
+    // S3 ListBucket permission for data lake
+    this.ingestRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      // ListBucket needs bucket ARN, not object ARN
+      resources: ['arn:aws:s3:::robofleet-data-lake-*'],
     }));
 
     // KMS permissions: Encrypt/decrypt with appKey
@@ -187,7 +194,9 @@ export class SecurityStack extends cdk.Stack {
         'athena:StopQueryExecution',   // Cancel query if needed
         'athena:ListQueryExecutions',  // List past queries
       ],
-      resources: [`arn:aws:athena:${this.region}:${this.account}:workgroup/robofleet-workgroup`],
+      resources: [
+        `arn:aws:athena:${this.region}:${this.account}:workgroup/robofleet-workgroup*`,
+      ],
     }));
 
     // Glue permissions: Read table metadata
@@ -208,16 +217,28 @@ export class SecurityStack extends cdk.Stack {
     }));
 
     // S3 permissions: Read raw telemetry data and write query results
-    // Note: StorageStack will grant specific bucket permissions
     this.queryRole.addToPrincipalPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         's3:GetObject',           // Read data files
-        's3:ListBucket',          // List files in bucket
-        's3:GetBucketLocation',   // Get bucket region
         's3:PutObject',           // Write query results
+        's3:GetBucketLocation',   // Get bucket region
       ],
-      resources: ['arn:aws:s3:::*'],
+      // Allow robofleet data lake and athena results buckets
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*/*',
+        'arn:aws:s3:::robofleet-athena-results-*/*',
+      ],
+    }));
+
+    // ListBucket permission for both buckets
+    this.queryRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*',
+        'arn:aws:s3:::robofleet-athena-results-*',
+      ],
     }));
 
     // CloudWatch Logs permissions: Write logs
@@ -271,12 +292,24 @@ export class SecurityStack extends cdk.Stack {
       ],
     }));
 
-    // S3 permissions: Read raw telemetry
-    // Note: StorageStack will grant specific bucket permissions
+    // S3 permissions: Read raw telemetry and results from data lake
     this.processingRole.addToPrincipalPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['s3:GetObject', 's3:ListBucket'],
-      resources: ['arn:aws:s3:::*'],
+      actions: ['s3:GetObject'],
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*/*',
+        'arn:aws:s3:::robofleet-athena-results-*/*',
+      ],
+    }));
+
+    // ListBucket permission for both buckets
+    this.processingRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*',
+        'arn:aws:s3:::robofleet-athena-results-*',
+      ],
     }));
 
     // CloudWatch Logs permissions: Write logs
@@ -443,14 +476,23 @@ export class SecurityStack extends cdk.Stack {
     });
 
     // S3 permissions: Read data lake
-    // Note: StorageStack will grant specific bucket permissions
     this.glueServiceRole.addToPrincipalPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: [
-        's3:GetObject',
-        's3:ListBucket',
+      actions: ['s3:GetObject'],
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*/*',
+        'arn:aws:s3:::robofleet-athena-results-*/*',
       ],
-      resources: ['arn:aws:s3:::*'],
+    }));
+
+    // ListBucket permission for both buckets
+    this.glueServiceRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*',
+        'arn:aws:s3:::robofleet-athena-results-*',
+      ],
     }));
 
     // KMS permissions: Decrypt data lake objects
@@ -495,6 +537,21 @@ export class SecurityStack extends cdk.Stack {
         `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/glue/*`,
       ],
     }));
+
+    // ---- ROLE 7: ATHENA SERVICE ROLE ----
+    // Purpose: Athena ExecutionRole for executing queries on S3 data
+    // What it needs:
+    //   - S3: Read data lake, write query results
+    //   - Glue: Read table/partition metadata
+    //   - KMS: Decrypt data if encrypted
+    //   - CloudWatch Logs: Write query logs
+    // Import existing AthenaServiceRole (already created in AWS)
+    // Using roleFromRoleName to avoid duplicate creation errors
+    this.athenaServiceRole = iam.Role.fromRoleName(
+      this,
+      'AthenaServiceRole',
+      'robofleet-athena-service-role'
+    );
 
     // ============================================
     // STEP 3: SECRETS MANAGER (Sensitive Data Storage)

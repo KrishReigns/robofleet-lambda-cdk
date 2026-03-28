@@ -4,18 +4,19 @@
  * Purpose: Receives device telemetry data and stores it in the S3 data lake
  * with proper partitioning by year/month/day for efficient querying via Athena
  *
- * Input: Raw telemetry event containing:
- * - device_id: Unique device identifier
- * - temperature: Current device temperature
- * - humidity: Current humidity level
- * - pressure: Atmospheric pressure
- * - timestamp: Event timestamp (optional - will use current time if not provided)
- * - additional metadata fields...
+ * Input:
+ * - device_id (string): Unique device identifier
+ * - fleet_id (string): Fleet grouping identifier
+ * - battery_level (number): Battery percentage 0-100
+ * - speed_mps (number): Speed in meters per second
+ * - status (string): IDLE | MOVING | CHARGING | ERROR
+ * - error_code (string, optional): Error code if status=ERROR
+ * - location_zone (string): Current zone identifier
+ * - temperature_celsius (number): Device temperature
+ * - event_time (string, optional): ISO 8601 timestamp — defaults to now
  *
- * Output: S3 object stored at:
- * s3://robofleet-data-lake-{account}/telemetry/{year}/{month}/{day}/{hour}/device-{deviceId}-{timestamp}.csv
- *
- * Error Handling: Logs errors to CloudWatch, throws exception on failure
+ * Output: S3 object at:
+ * s3://robofleet-data-lake-{account}/telemetry/year={Y}/month={MM}/day={DD}/hour={HH}/device-{deviceId}-{timestamp}.csv
  */
 
 import {
@@ -24,23 +25,20 @@ import {
   PutObjectCommandInput,
 } from '@aws-sdk/client-s3';
 
-// Initialize AWS SDK clients
 const s3Client = new S3Client({ region: process.env.AWS_REGION });
 
-// Get environment variables
 const DATA_LAKE_BUCKET = process.env.DATA_LAKE_BUCKET || 'robofleet-data-lake';
-const LOG_GROUP = '/aws/lambda/ingest';
 
-/**
- * Type definitions for telemetry data
- */
 interface TelemetryEvent {
   device_id: string;
-  temperature: number;
-  humidity: number;
-  pressure: number;
-  timestamp?: number;
-  [key: string]: any; // Allow additional fields
+  fleet_id: string;
+  battery_level: number;
+  speed_mps: number;
+  status: string;
+  error_code?: string;
+  location_zone: string;
+  temperature_celsius: number;
+  event_time?: string;
 }
 
 interface LambdaEvent {
@@ -48,51 +46,29 @@ interface LambdaEvent {
   [key: string]: any;
 }
 
-/**
- * Format telemetry data as CSV for S3 storage
- * This format will be parsed by Glue Crawler
- */
 function formatAsCSV(telemetry: TelemetryEvent): string {
-  const timestamp = telemetry.timestamp || Date.now();
   return [
     telemetry.device_id,
-    telemetry.temperature,
-    telemetry.humidity,
-    telemetry.pressure,
-    timestamp,
-    new Date(timestamp).toISOString(),
+    telemetry.fleet_id,
+    telemetry.event_time,
+    telemetry.battery_level,
+    telemetry.speed_mps,
+    telemetry.status,
+    telemetry.error_code ?? '',
+    telemetry.location_zone,
+    telemetry.temperature_celsius,
   ].join(',');
 }
 
-/**
- * Generate S3 partition path based on timestamp
- * Path: telemetry/{year}/{month}/{day}/{hour}/
- */
-function getPartitionPath(timestamp: number): string {
-  const date = new Date(timestamp);
+function getPartitionPath(isoTime: string): string {
+  const date = new Date(isoTime);
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const day = String(date.getUTCDate()).padStart(2, '0');
   const hour = String(date.getUTCHours()).padStart(2, '0');
-
   return `telemetry/year=${year}/month=${month}/day=${day}/hour=${hour}`;
 }
 
-/**
- * Generate unique S3 object key
- */
-function generateObjectKey(
-  deviceId: string,
-  timestamp: number,
-  partitionPath: string
-): string {
-  // Format: telemetry/year=2024/month=03/day=27/hour=14/device-{deviceId}-{timestamp}.csv
-  return `${partitionPath}/device-${deviceId}-${timestamp}.csv`;
-}
-
-/**
- * Main Lambda handler
- */
 export const handler = async (event: LambdaEvent) => {
   const startTime = Date.now();
   let telemetry: TelemetryEvent | undefined;
@@ -103,69 +79,50 @@ export const handler = async (event: LambdaEvent) => {
       timestamp: new Date().toISOString(),
     });
 
-    // Parse incoming telemetry data
-    // Support both direct invocation and API Gateway/SNS events
     if (typeof event.body === 'string') {
       telemetry = JSON.parse(event.body);
-    } else if (event.Records && event.Records[0]?.Sns) {
-      // SNS event
+    } else if (event.Records?.[0]?.Sns) {
       telemetry = JSON.parse(event.Records[0].Sns.Message);
     } else {
-      // Direct invocation
       telemetry = event as TelemetryEvent;
     }
 
-    // Guard against undefined telemetry
-    if (!telemetry) {
-      throw new Error('Failed to parse telemetry data');
-    }
+    if (!telemetry) throw new Error('Failed to parse telemetry data');
 
     // Validate required fields
-    if (!telemetry.device_id) {
-      throw new Error('Missing required field: device_id');
-    }
-    if (typeof telemetry.temperature !== 'number') {
-      throw new Error('Missing or invalid field: temperature');
-    }
-    if (typeof telemetry.humidity !== 'number') {
-      throw new Error('Missing or invalid field: humidity');
-    }
-    if (typeof telemetry.pressure !== 'number') {
-      throw new Error('Missing or invalid field: pressure');
-    }
+    if (!telemetry.device_id) throw new Error('Missing required field: device_id');
+    if (!telemetry.fleet_id) throw new Error('Missing required field: fleet_id');
+    if (typeof telemetry.battery_level !== 'number') throw new Error('Missing or invalid field: battery_level');
+    if (typeof telemetry.speed_mps !== 'number') throw new Error('Missing or invalid field: speed_mps');
+    if (!telemetry.status) throw new Error('Missing required field: status');
+    if (!telemetry.location_zone) throw new Error('Missing required field: location_zone');
+    if (typeof telemetry.temperature_celsius !== 'number') throw new Error('Missing or invalid field: temperature_celsius');
 
-    // Add current timestamp if not provided
-    const timestamp = telemetry.timestamp || Date.now();
-    telemetry.timestamp = timestamp;
+    telemetry.event_time = telemetry.event_time || new Date().toISOString();
 
-    // Generate S3 path and key
-    const partitionPath = getPartitionPath(timestamp);
-    const objectKey = generateObjectKey(telemetry.device_id, timestamp, partitionPath);
-
-    // Format data as CSV
+    const partitionPath = getPartitionPath(telemetry.event_time);
+    const timestamp = Date.now();
+    const objectKey = `${partitionPath}/device-${telemetry.device_id}-${timestamp}.csv`;
     const csvData = formatAsCSV(telemetry);
 
-    // Upload to S3
     const putParams: PutObjectCommandInput = {
       Bucket: DATA_LAKE_BUCKET,
       Key: objectKey,
       Body: csvData,
       ContentType: 'text/csv',
-      ServerSideEncryption: 'aws:kms', // Required by security policy
+      ServerSideEncryption: 'aws:kms',
+      SSEKMSKeyId: process.env.KMS_KEY_ARN,
       Metadata: {
         'device-id': telemetry.device_id,
         'ingestion-timestamp': new Date().toISOString(),
       },
     };
 
-    const putCommand = new PutObjectCommand(putParams);
-    const s3Response = await s3Client.send(putCommand);
-
+    const s3Response = await s3Client.send(new PutObjectCommand(putParams));
     const duration = Date.now() - startTime;
 
     console.log('Telemetry stored successfully', {
       deviceId: telemetry.device_id,
-      s3Bucket: DATA_LAKE_BUCKET,
       s3Key: objectKey,
       eTag: s3Response.ETag,
       processingDurationMs: duration,

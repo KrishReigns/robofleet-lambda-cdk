@@ -8,6 +8,7 @@ import { Construct } from 'constructs';
 interface StorageStackProps extends cdk.StackProps {
   appKey: kms.Key;
   glueServiceRole: iam.Role;
+  athenaServiceRole: iam.IRole;
 }
 
 /**
@@ -216,51 +217,51 @@ export class StorageStack extends cdk.Stack {
             },
           },
           columns: [
-            // Data columns (9 columns)
+            // Data columns (9 columns) - MUST MATCH telemetry data format
             {
               name: 'device_id',
               type: 'string',
-              comment: 'Unique identifier for robotic device',
+              comment: 'Unique device identifier',
             },
             {
               name: 'fleet_id',
               type: 'string',
-              comment: 'Fleet identifier grouping devices',
+              comment: 'Fleet identifier',
             },
             {
               name: 'event_time',
               type: 'string',
-              comment: 'ISO 8601 timestamp of telemetry event',
+              comment: 'Event timestamp',
             },
             {
               name: 'battery_level',
-              type: 'double',
-              comment: 'Battery percentage (0.0-100.0)',
+              type: 'int',
+              comment: 'Battery level percentage',
             },
             {
               name: 'speed_mps',
               type: 'double',
-              comment: 'Velocity in meters per second',
+              comment: 'Speed in meters per second',
             },
             {
               name: 'status',
               type: 'string',
-              comment: 'Device status (IDLE, MOVING, CHARGING, ERROR)',
+              comment: 'Device status (ACTIVE, INACTIVE, etc)',
             },
             {
               name: 'error_code',
               type: 'string',
-              comment: 'Error code if status=ERROR, null otherwise',
+              comment: 'Error code if any',
             },
             {
               name: 'location_zone',
               type: 'string',
-              comment: 'Current zone/warehouse location',
+              comment: 'Current location zone',
             },
             {
               name: 'temperature_celsius',
               type: 'double',
-              comment: 'Device temperature in Celsius',
+              comment: 'Temperature in Celsius',
             },
           ],
         },
@@ -299,6 +300,21 @@ export class StorageStack extends cdk.Stack {
      * We do NOT grant additional permissions here to avoid circular dependencies.
      * StorageStack depends on SecurityStack (for roles and keys), so StorageStack
      * should NOT modify SecurityStack resources back.
+     */
+
+    // ============================================================================
+    // ATHENA WORKGROUP - Configured via AWS CLI (not CloudFormation)
+    // ============================================================================
+    /**
+     * NOTE: Workgroup robofleet-workgroup-v2 is created and configured via AWS CLI
+     * Reason: CloudFormation cannot manage resources it didn't create.
+     *         The workgroup already exists from manual setup, so CDK/CFN can't recreate it.
+     *
+     * The workgroup configuration is managed separately:
+     * - See docs/DEPLOYMENT.md Phase 4 for AWS CLI commands
+     * - ExecutionRole MUST be set at creation time (cannot be added later via update)
+     * - Results location: s3://robofleet-athena-results-{account}/query-results/
+     * - Encryption: SSE-S3
      */
 
     // ============================================================================

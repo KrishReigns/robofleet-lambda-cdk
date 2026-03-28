@@ -10,6 +10,7 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as snsActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import { Construct } from 'constructs';
 
 interface ComputeStackProps extends cdk.StackProps {
@@ -24,6 +25,7 @@ interface ComputeStackProps extends cdk.StackProps {
   athenaResultsBucket: s3.Bucket;
   glueDatabase: string;
   deviceTelemetryTable: string;
+  appKey: kms.Key;
 }
 
 /**
@@ -77,6 +79,7 @@ export class ComputeStack extends cdk.Stack {
       athenaResultsBucket,
       glueDatabase,
       deviceTelemetryTable,
+      appKey,
     } = props;
 
     // ============================================================================
@@ -172,9 +175,9 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: ingestLogGroup,
-      reservedConcurrentExecutions: 0,
       environment: {
         DATA_LAKE_BUCKET: dataLakeBucket.bucketName,
+        KMS_KEY_ARN: appKey.keyArn,
         LOG_LEVEL: 'INFO',
       },
       description: 'Ingest device telemetry and store in data lake',
@@ -215,9 +218,9 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: queryLogGroup,
-      reservedConcurrentExecutions: 0,
       environment: {
-        ATHENA_OUTPUT_BUCKET: athenaResultsBucket.bucketName,
+        ATHENA_WORKGROUP: 'robofleet-workgroup-v3',
+        ATHENA_RESULTS_BUCKET: athenaResultsBucket.bucketName,
         GLUE_DATABASE: glueDatabase,
         DEVICE_TELEMETRY_TABLE: deviceTelemetryTable,
         LOG_LEVEL: 'INFO',
@@ -259,7 +262,6 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: processingLogGroup,
-      reservedConcurrentExecutions: 0,
       environment: {
         DATA_LAKE_BUCKET: dataLakeBucket.bucketName,
         GLUE_DATABASE: glueDatabase,
@@ -300,7 +302,6 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: snsToSlackLogGroup,
-      reservedConcurrentExecutions: 0,
       environment: {
         SLACK_WEBHOOK_SECRET: 'robofleet/slack-webhook',
         ALERTS_TOPIC_ARN: this.alertsTopic.topicArn,
@@ -343,7 +344,6 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnets: vpc.isolatedSubnets },
       securityGroups: [lambdaSecurityGroup],
       logGroup: snsToEmailLogGroup,
-      reservedConcurrentExecutions: 0,
       environment: {
         EMAIL_CONFIG_SECRET: 'robofleet/email-config',
         ALERTS_TOPIC_ARN: this.alertsTopic.topicArn,
