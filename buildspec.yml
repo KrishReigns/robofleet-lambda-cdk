@@ -12,7 +12,7 @@ phases:
       - echo "Compiling TypeScript..."
       - ./node_modules/.bin/tsc
       - echo "Running unit tests..."
-      - npm run test -- --coverage --passWithNoTests
+      - npm run test -- --passWithNoTests
 
   build:
     commands:
