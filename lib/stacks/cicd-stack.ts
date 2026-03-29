@@ -323,7 +323,7 @@ export class CICDStack extends cdk.Stack {
         new codepipelineActions.CloudFormationCreateUpdateStackAction({
           actionName: 'CloudFormationDeploy',
           stackName: 'robofleet-infrastructure',
-          templatePath: buildOutput.atPath('RobofleetSecurityStack.template.json'),
+          templatePath: buildOutput.atPath('cdk.out/RobofleetSecurityStack.template.json'),
           adminPermissions: false,
           runOrder: 2,
           role: cfExecutionRole,
