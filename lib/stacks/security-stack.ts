@@ -110,22 +110,15 @@ export class SecurityStack extends cdk.Stack {
     });
 
     // S3 permissions: Write telemetry files to data lake
-    // This policy allows S3 operations with KMS encryption requirement
+    // Note: KMS encryption is enforced by the bucket policy (DenyUnencryptedObjectUploads).
+    // The Lambda code sends ServerSideEncryption=aws:kms + SSEKMSKeyId matching the app key.
     this.ingestRole.addToPrincipalPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         's3:PutObject',      // Upload telemetry files
         's3:GetObject',      // Read (for testing/validation)
       ],
-      // Allow robofleet data lake bucket objects with KMS encryption requirement
       resources: ['arn:aws:s3:::robofleet-data-lake-*/*'],
-      // CRITICAL: Require encryption with our KMS key
-      conditions: {
-        'StringEquals': {
-          's3:x-amz-server-side-encryption': 'aws:kms',
-          's3:x-amz-server-side-encryption-aws-kms-key-arn': this.appKey.keyArn,
-        },
-      },
     }));
 
     // S3 ListBucket permission for data lake
@@ -222,19 +215,20 @@ export class SecurityStack extends cdk.Stack {
       actions: [
         's3:GetObject',           // Read data files
         's3:PutObject',           // Write query results
-        's3:GetBucketLocation',   // Get bucket region
       ],
-      // Allow robofleet data lake and athena results buckets
       resources: [
         'arn:aws:s3:::robofleet-data-lake-*/*',
         'arn:aws:s3:::robofleet-athena-results-*/*',
       ],
     }));
 
-    // ListBucket permission for both buckets
+    // Bucket-level S3 permissions (must use bucket ARN, not object ARN)
     this.queryRole.addToPrincipalPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['s3:ListBucket'],
+      actions: [
+        's3:ListBucket',
+        's3:GetBucketLocation',   // Bucket region check — requires bucket ARN
+      ],
       resources: [
         'arn:aws:s3:::robofleet-data-lake-*',
         'arn:aws:s3:::robofleet-athena-results-*',
@@ -252,6 +246,17 @@ export class SecurityStack extends cdk.Stack {
       resources: [
         `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/query:*`,
       ],
+    }));
+
+    // KMS permissions: Decrypt data lake + encrypt/decrypt Athena results
+    this.queryRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'kms:Decrypt',
+        'kms:GenerateDataKey',
+        'kms:DescribeKey',
+      ],
+      resources: [this.appKey.keyArn],
     }));
 
     // VPC permissions: Create/manage ENIs for VPC deployment
@@ -323,6 +328,17 @@ export class SecurityStack extends cdk.Stack {
       resources: [
         `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/processing:*`,
       ],
+    }));
+
+    // KMS permissions: Decrypt KMS-encrypted S3 objects
+    this.processingRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'kms:Decrypt',
+        'kms:GenerateDataKey',
+        'kms:DescribeKey',
+      ],
+      resources: [this.appKey.keyArn],
     }));
 
     // VPC permissions: Create/manage ENIs for VPC deployment
