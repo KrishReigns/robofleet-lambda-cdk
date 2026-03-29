@@ -37,7 +37,7 @@ const TABLE = 'device_telemetry';
 /**
  * Type definitions
  */
-interface TelemetryRecord {
+export interface TelemetryRecord {
   device_id: string;
   temperature: number;
   humidity: number;
@@ -46,7 +46,7 @@ interface TelemetryRecord {
   iso_timestamp: string;
 }
 
-interface AggregatedData {
+export interface AggregatedData {
   device_id: string;
   window_start: number;
   window_end: number;
@@ -65,8 +65,9 @@ interface AggregatedData {
 
 /**
  * Get hour to process (previous hour)
+ * Exported for unit testing
  */
-function getHourToProcess(): {
+export function getHourToProcess(): {
   year: string;
   month: string;
   day: string;
@@ -105,8 +106,9 @@ async function listRawTelemetry(
 
 /**
  * Parse CSV telemetry record
+ * Exported for unit testing
  */
-function parseCSVRecord(csvLine: string): TelemetryRecord {
+export function parseCSVRecord(csvLine: string): TelemetryRecord {
   const [device_id, temperature, humidity, pressure, timestamp, iso_timestamp] =
     csvLine.split(',');
 
@@ -122,8 +124,9 @@ function parseCSVRecord(csvLine: string): TelemetryRecord {
 
 /**
  * Aggregate records by 5-minute windows
+ * Exported for unit testing
  */
-function aggregateRecords(records: TelemetryRecord[]): Map<string, AggregatedData> {
+export function aggregateRecords(records: TelemetryRecord[]): Map<string, AggregatedData> {
   const aggregated = new Map<string, AggregatedData>();
   const WINDOW_SIZE = 5 * 60 * 1000; // 5 minutes in ms
 
