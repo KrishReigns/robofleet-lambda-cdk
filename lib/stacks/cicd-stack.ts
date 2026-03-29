@@ -270,18 +270,9 @@ export class CICDStack extends cdk.Stack {
       description: 'CloudFormation execution role for pipeline deployments',
     });
 
-    // Grant CloudFormation role permissions to manage stacks
-    cfExecutionRole.addToPrincipalPolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: [
-          'cloudformation:CreateStack',
-          'cloudformation:UpdateStack',
-          'cloudformation:DescribeStacks',
-          'cloudformation:GetTemplate',
-        ],
-        resources: ['*'],
-      })
+    // Grant CloudFormation role permissions to manage stacks and read CDK bootstrap
+    cfExecutionRole.addManagedPolicy(
+      iam.ManagedPolicy.fromAwsManagedPolicyName('AdministratorAccess')
     );
 
     // Allow pipeline to pass this role to CloudFormation
@@ -325,6 +316,10 @@ export class CICDStack extends cdk.Stack {
           stackName: 'robofleet-infrastructure',
           templatePath: buildOutput.atPath('cdk.out/RobofleetSecurityStack.template.json'),
           adminPermissions: false,
+          cfnCapabilities: [
+            cdk.CfnCapabilities.NAMED_IAM,
+            cdk.CfnCapabilities.AUTO_EXPAND,
+          ],
           runOrder: 2,
           role: cfExecutionRole,
           // Note: CDK typically generates multiple stack templates
