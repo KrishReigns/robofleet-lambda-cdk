@@ -20,14 +20,19 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
-  globals: {
-    'ts-jest': {
-      tsconfig: 'tsconfig.json',
-      isolatedModules: true,
-    },
-  },
   transform: {
-    '^.+\\.tsx?$': 'ts-jest',
+    '^.+\\.tsx?$': ['ts-jest', {
+      tsconfig: {
+        target: 'ES2022',
+        module: 'CommonJS',
+        moduleResolution: 'Node',
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true,
+        strict: true,
+        skipLibCheck: true,
+        isolatedModules: true,
+      },
+    }],
   },
   testTimeout: 10000,
 };
