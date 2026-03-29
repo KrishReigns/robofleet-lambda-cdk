@@ -91,8 +91,9 @@ interface SNSMessage {
 
 /**
  * Format alarm message as email HTML
+ * Exported for unit testing
  */
-function formatEmailHTML(snsMessage: SNSMessage): string {
+export function formatEmailHTML(snsMessage: SNSMessage): string {
   const trigger = snsMessage.Trigger;
   const dimensionStr =
     trigger?.Dimensions?.map((d) => `<li>${d.name}: ${d.value}</li>`).join('') ||
@@ -159,8 +160,9 @@ function formatEmailHTML(snsMessage: SNSMessage): string {
 
 /**
  * Format alarm message as plain text
+ * Exported for unit testing
  */
-function formatEmailText(snsMessage: SNSMessage): string {
+export function formatEmailText(snsMessage: SNSMessage): string {
   const trigger = snsMessage.Trigger;
   const dimensionStr =
     trigger?.Dimensions?.map((d) => `  - ${d.name}: ${d.value}`).join('\n') || '  - N/A';

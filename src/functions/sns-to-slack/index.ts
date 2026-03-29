@@ -87,8 +87,9 @@ interface SNSMessage {
 
 /**
  * Format SNS alarm message into Slack message
+ * Exported for unit testing
  */
-function formatSlackMessage(snsMessage: SNSMessage): {
+export function formatSlackMessage(snsMessage: SNSMessage): {
   text: string;
   blocks: any[];
 } {
