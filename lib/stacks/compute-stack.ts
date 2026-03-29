@@ -21,6 +21,8 @@ interface ComputeStackProps extends cdk.StackProps {
   processingRole: iam.Role;
   snsToSlackRole: iam.Role;
   snsToEmailRole: iam.Role;
+  kpiRole: iam.Role;
+  dataQualityRole: iam.Role;
   dataLakeBucket: s3.Bucket;
   athenaResultsBucket: s3.Bucket;
   glueDatabase: string;
@@ -61,6 +63,8 @@ export class ComputeStack extends cdk.Stack {
   public readonly processingLambda: lambda.Function;
   public readonly snsToSlackLambda: lambda.Function;
   public readonly snsToEmailLambda: lambda.Function;
+  public readonly kpiLambda: lambda.Function;
+  public readonly dataQualityLambda: lambda.Function;
   public readonly alertsTopic: sns.Topic;
   public readonly dashboard: cloudwatch.Dashboard;
 
@@ -75,6 +79,8 @@ export class ComputeStack extends cdk.Stack {
       processingRole,
       snsToSlackRole,
       snsToEmailRole,
+      kpiRole,
+      dataQualityRole,
       dataLakeBucket,
       athenaResultsBucket,
       glueDatabase,
@@ -134,6 +140,18 @@ export class ComputeStack extends cdk.Stack {
 
     const snsToEmailLogGroup = new logs.LogGroup(this, 'SNSToEmailLogGroup', {
       logGroupName: '/aws/lambda/sns-to-email',
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const kpiLogGroup = new logs.LogGroup(this, 'KpiLogGroup', {
+      logGroupName: '/aws/lambda/kpi',
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const dataQualityLogGroup = new logs.LogGroup(this, 'DataQualityLogGroup', {
+      logGroupName: '/aws/lambda/data-quality',
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
@@ -350,6 +368,79 @@ export class ComputeStack extends cdk.Stack {
 
     // Note: SNSToEmail Lambda doesn't need publish permissions - it only subscribes to the topic
 
+    // ---- LAMBDA 6: KPI ----
+    /**
+     * Function: kpi
+     * Trigger: EventBridge schedule (every 5 minutes)
+     * Input: none — builds SQL from current UTC date
+     * Output: 6 CloudWatch metrics in namespace RoboFleet/Fleet
+     *
+     * WHY THIS MATTERS FOR THE JD (Amazon Robotics Cloud Developer):
+     *   Job descriptions ask for "custom CloudWatch metrics" and "business KPIs".
+     *   This Lambda bridges raw telemetry data → actionable business metrics that
+     *   ops teams can put on dashboards and alarm on.
+     *
+     * What it publishes (namespace: RoboFleet/Fleet, dim: Fleet=ALL):
+     *   ActiveDeviceCount     — devices that reported in today's partition
+     *   ErrorDeviceCount      — devices with error_count > 0
+     *   CriticalBatteryCount  — devices with min_battery_pct < 20
+     *   FleetErrorRatePct     — SLI: error events / total events
+     *   AvgBatteryLevel       — fleet-wide average battery
+     *   AvgTemperatureCelsius — fleet-wide average temperature
+     */
+    this.kpiLambda = new lambda.Function(this, 'KpiFunction', {
+      functionName: 'robofleet-kpi',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'functions/kpi/index.handler',
+      code: lambda.Code.fromAsset('src'),
+      role: kpiRole,
+      timeout: cdk.Duration.seconds(120), // Athena queries can take 10–60 seconds
+      memorySize: 256,
+      logGroup: kpiLogGroup,
+      environment: {
+        ATHENA_WORKGROUP: 'robofleet-workgroup-v3',
+        GLUE_DATABASE: glueDatabase,
+        LOG_LEVEL: 'INFO',
+      },
+      description: 'Query Athena for fleet KPIs and publish custom CloudWatch metrics',
+    });
+
+    // ---- LAMBDA 7: DATA QUALITY ----
+    /**
+     * Function: data-quality
+     * Trigger: EventBridge schedule (every 30 minutes)
+     * Input: none
+     * Output: 4 CloudWatch metrics in namespace RoboFleet/DataQuality
+     *         + SNS alert if any check fails
+     *
+     * WHY THIS MATTERS:
+     *   Silent failures are the hardest bugs to catch in data pipelines.
+     *   If the ingest Lambda stops writing to S3, Athena simply returns old data —
+     *   no error is thrown. This watchdog catches that class of failure.
+     *
+     * Checks:
+     *   1. Data freshness  — how many minutes since last event_time?
+     *   2. Partition health — does today's Glue partition exist?
+     *   3. Device count regression — >30% drop vs yesterday = incident
+     */
+    this.dataQualityLambda = new lambda.Function(this, 'DataQualityFunction', {
+      functionName: 'robofleet-data-quality',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'functions/data-quality/index.handler',
+      code: lambda.Code.fromAsset('src'),
+      role: dataQualityRole,
+      timeout: cdk.Duration.seconds(300), // 3 Athena queries, each up to 60s
+      memorySize: 256,
+      logGroup: dataQualityLogGroup,
+      environment: {
+        ATHENA_WORKGROUP: 'robofleet-workgroup-v3',
+        GLUE_DATABASE: glueDatabase,
+        ALERTS_TOPIC_ARN: this.alertsTopic.topicArn, // alertsTopic defined above
+        LOG_LEVEL: 'INFO',
+      },
+      description: 'Pipeline watchdog: checks freshness, partitions, and device count regression',
+    });
+
     // ============================================================================
     // SNS SUBSCRIPTIONS - Route alerts to Lambda handlers
     // ============================================================================
@@ -405,6 +496,30 @@ export class ComputeStack extends cdk.Stack {
     processingScheduleRule.addTarget(
       new targets.LambdaFunction(this.processingLambda)
     );
+
+    // ---- RULE 3: KPI Schedule (every 5 minutes) ----
+    /**
+     * TEACHING MOMENT — why 5 minutes for KPI vs 30 minutes for Data Quality?
+     *   KPI Lambda queries the device_status_summary VIEW (aggregated, indexed).
+     *   It's fast (~5s) and cheap — safe to run frequently.
+     *   Data Quality Lambda runs 3 sequential Athena queries on the raw table.
+     *   Running it too frequently wastes Athena credits and hits concurrency limits.
+     *   30-minute cadence is the right tradeoff for a watchdog.
+     */
+    const kpiScheduleRule = new events.Rule(this, 'KpiScheduleRule', {
+      schedule: events.Schedule.expression('rate(5 minutes)'),
+      description: 'Trigger KPI Lambda every 5 minutes to publish fleet business metrics',
+      enabled: true,
+    });
+    kpiScheduleRule.addTarget(new targets.LambdaFunction(this.kpiLambda));
+
+    // ---- RULE 4: Data Quality Schedule (every 30 minutes) ----
+    const dataQualityScheduleRule = new events.Rule(this, 'DataQualityScheduleRule', {
+      schedule: events.Schedule.expression('rate(30 minutes)'),
+      description: 'Trigger Data Quality Lambda every 30 min to check pipeline health',
+      enabled: true,
+    });
+    dataQualityScheduleRule.addTarget(new targets.LambdaFunction(this.dataQualityLambda));
 
     // ============================================================================
     // CLOUDWATCH DASHBOARD - Monitoring and visibility
@@ -487,6 +602,102 @@ export class ComputeStack extends cdk.Stack {
       })
     );
 
+    // Row 4: Business KPIs (from KPI Lambda — namespace RoboFleet/Fleet)
+    /**
+     * TEACHING MOMENT — custom metrics in CloudWatch dashboards
+     *   Lambda built-in metrics (invocations, duration, errors) come from the
+     *   AWS/Lambda namespace automatically. You don't publish them — they just appear.
+     *   Custom business metrics need a Metric object with the exact namespace,
+     *   metricName, and dimensions that your Lambda used in PutMetricData.
+     *   If these don't match exactly, the widget shows "no data".
+     */
+    this.dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Fleet Device Counts',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'RoboFleet/Fleet',
+            metricName: 'ActiveDeviceCount',
+            dimensionsMap: { Fleet: 'ALL' },
+            statistic: 'Maximum',
+            period: cdk.Duration.minutes(5),
+          }),
+          new cloudwatch.Metric({
+            namespace: 'RoboFleet/Fleet',
+            metricName: 'ErrorDeviceCount',
+            dimensionsMap: { Fleet: 'ALL' },
+            statistic: 'Maximum',
+            period: cdk.Duration.minutes(5),
+          }),
+          new cloudwatch.Metric({
+            namespace: 'RoboFleet/Fleet',
+            metricName: 'CriticalBatteryCount',
+            dimensionsMap: { Fleet: 'ALL' },
+            statistic: 'Maximum',
+            period: cdk.Duration.minutes(5),
+          }),
+        ],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Fleet Health Indicators',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'RoboFleet/Fleet',
+            metricName: 'FleetErrorRatePct',
+            dimensionsMap: { Fleet: 'ALL' },
+            statistic: 'Maximum',
+            period: cdk.Duration.minutes(5),
+          }),
+          new cloudwatch.Metric({
+            namespace: 'RoboFleet/Fleet',
+            metricName: 'AvgBatteryLevel',
+            dimensionsMap: { Fleet: 'ALL' },
+            statistic: 'Average',
+            period: cdk.Duration.minutes(5),
+          }),
+        ],
+        width: 12,
+      })
+    );
+
+    // Row 5: Data Quality metrics (from Data Quality Lambda — namespace RoboFleet/DataQuality)
+    this.dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Data Pipeline Freshness (minutes)',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'RoboFleet/DataQuality',
+            metricName: 'DataFreshnessMinutes',
+            dimensionsMap: { Pipeline: 'Telemetry' },
+            statistic: 'Maximum',
+            period: cdk.Duration.minutes(30),
+          }),
+        ],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Active Device Count Trend',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'RoboFleet/DataQuality',
+            metricName: 'ActiveDeviceCount',
+            dimensionsMap: { Pipeline: 'Telemetry' },
+            statistic: 'Maximum',
+            period: cdk.Duration.minutes(30),
+          }),
+          new cloudwatch.Metric({
+            namespace: 'RoboFleet/DataQuality',
+            metricName: 'DeviceCountDeltaPct',
+            dimensionsMap: { Pipeline: 'Telemetry' },
+            statistic: 'Minimum',
+            period: cdk.Duration.minutes(30),
+          }),
+        ],
+        width: 12,
+      })
+    );
+
     // ============================================================================
     // CLOUDWATCH ALARMS - Alert on anomalies
     // ============================================================================
@@ -544,6 +755,83 @@ export class ComputeStack extends cdk.Stack {
       evaluationPeriods: 2,
     });
     slowQueriesAlarm.addAlarmAction(new snsActions.SnsAction(this.alertsTopic));
+
+    // ---- ALARM 4: Critical Battery Count ----
+    /**
+     * TEACHING MOMENT — alarming on custom metrics
+     *   CloudWatch Alarms work the same whether the metric is built-in (AWS/Lambda)
+     *   or custom (RoboFleet/Fleet). You specify namespace + metricName + dimensions.
+     *   The alarm evaluates the metric on the same period as your Lambda publish rate.
+     *   If the Lambda hasn't published yet (e.g., first 5 minutes), CloudWatch treats
+     *   the period as INSUFFICIENT_DATA, not ALARM. That's why we set
+     *   treatMissingData: TreatMissingData.NOT_BREACHING — don't alert on cold starts.
+     */
+    const criticalBatteryAlarm = new cloudwatch.Alarm(this, 'CriticalBatteryAlarm', {
+      alarmName: 'robofleet-critical-battery-count',
+      alarmDescription: 'Alert when more than 3 devices have critically low battery (< 20%)',
+      metric: new cloudwatch.Metric({
+        namespace: 'RoboFleet/Fleet',
+        metricName: 'CriticalBatteryCount',
+        dimensionsMap: { Fleet: 'ALL' },
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 3,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    criticalBatteryAlarm.addAlarmAction(new snsActions.SnsAction(this.alertsTopic));
+
+    // ---- ALARM 5: Fleet Error Rate SLI ----
+    /**
+     * TEACHING MOMENT — SLI (Service Level Indicator) alarms
+     *   Error rate percentage is a classic SLI. At Amazon Robotics scale,
+     *   even 5% error rate = thousands of error events across a large fleet.
+     *   We use FleetErrorRatePct (published by KPI Lambda) instead of raw
+     *   error counts so the alarm scales with fleet size automatically.
+     *   evaluationPeriods: 2 means it must breach for 2 consecutive periods
+     *   (10 min total) before alerting — reduces false positives from brief spikes.
+     */
+    const fleetErrorRateAlarm = new cloudwatch.Alarm(this, 'FleetErrorRateAlarm', {
+      alarmName: 'robofleet-fleet-error-rate',
+      alarmDescription: 'Alert when fleet error rate exceeds 25% for 2 consecutive 5-minute periods',
+      metric: new cloudwatch.Metric({
+        namespace: 'RoboFleet/Fleet',
+        metricName: 'FleetErrorRatePct',
+        dimensionsMap: { Fleet: 'ALL' },
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 25,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    fleetErrorRateAlarm.addAlarmAction(new snsActions.SnsAction(this.alertsTopic));
+
+    // ---- ALARM 6: Data Freshness ----
+    /**
+     * TEACHING MOMENT — data pipeline freshness alarms
+     *   The Data Quality Lambda publishes DataFreshnessMinutes every 30 minutes.
+     *   A value > 60 means NO new telemetry has arrived in the last 60 minutes.
+     *   This catches ingest Lambda failures, IoT rule failures, and device outages.
+     *   9999 is the sentinel value when no data exists at all (see data-quality/index.ts).
+     *   The threshold of 60 gives 30 min of grace beyond the 30-min publish cycle.
+     */
+    const dataFreshnessAlarm = new cloudwatch.Alarm(this, 'DataFreshnessAlarm', {
+      alarmName: 'robofleet-data-freshness',
+      alarmDescription: 'Alert when no new telemetry has arrived in the last 60 minutes',
+      metric: new cloudwatch.Metric({
+        namespace: 'RoboFleet/DataQuality',
+        metricName: 'DataFreshnessMinutes',
+        dimensionsMap: { Pipeline: 'Telemetry' },
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(30),
+      }),
+      threshold: 60,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    dataFreshnessAlarm.addAlarmAction(new snsActions.SnsAction(this.alertsTopic));
 
     // ============================================================================
     // STACK OUTPUTS - Export for downstream stacks

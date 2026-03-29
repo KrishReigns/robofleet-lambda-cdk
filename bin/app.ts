@@ -6,6 +6,7 @@ import { SecurityStack } from '../lib/stacks/security-stack';
 import { StorageStack } from '../lib/stacks/storage-stack';
 import { ComputeStack } from '../lib/stacks/compute-stack';
 import { CICDStack } from '../lib/stacks/cicd-stack';
+import { QuickSightStack } from '../lib/stacks/quicksight-stack';
 
 /**
  * Robofleet Lambda CDK Application
@@ -70,6 +71,8 @@ const computeStack = new ComputeStack(app, 'RobofleetComputeStack', {
   processingRole: securityStack.processingRole,
   snsToSlackRole: securityStack.snsToSlackRole,
   snsToEmailRole: securityStack.snsToEmailRole,
+  kpiRole: securityStack.kpiRole,
+  dataQualityRole: securityStack.dataQualityRole,
   dataLakeBucket: storageStack.dataLakeBucket,
   athenaResultsBucket: storageStack.athenaResultsBucket,
   glueDatabase: storageStack.glueDatabaseName,
@@ -91,5 +94,24 @@ const cicdStack = new CICDStack(app, 'RobofleetCICDStack', {
   description: 'Robofleet CI/CD pipeline (CodeCommit, CodeBuild, CodePipeline)',
   stackName: 'robofleet-cicd-stack',
 });
+
+// Stack 6: QuickSight — BI dashboards on top of Athena/Glue
+// PREREQUISITE: QuickSight account must be activated manually in the console first
+// Run after activation: npx cdk deploy RobofleetQuickSightStack
+const quickSightStack = new QuickSightStack(app, 'RobofleetQuickSightStack', {
+  env,
+  quickSightUserArn: 'arn:aws:quicksight:us-east-1:235695894002:user/default/CloudAI',
+  athenaWorkgroup: 'robofleet-workgroup-v3',
+  athenaResultsBucketName: 'robofleet-athena-results-235695894002',
+  glueDatabaseName: 'robofleet_db',
+  appKey: securityStack.appKey,
+  dataLakeBucket: storageStack.dataLakeBucket,
+  athenaResultsBucket: storageStack.athenaResultsBucket,
+  description: 'RoboFleet QuickSight data sources and datasets for BI dashboards',
+  stackName: 'robofleet-quicksight-stack',
+});
+
+// QuickSight depends on storage (Glue views must exist) and compute (datasets reference workgroup)
+quickSightStack.addDependency(storageStack);
 
 app.synth();

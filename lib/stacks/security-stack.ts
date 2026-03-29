@@ -31,6 +31,8 @@ export class SecurityStack extends cdk.Stack {
   public readonly snsToEmailRole: iam.Role;
   public readonly glueServiceRole: iam.Role;
   public readonly athenaServiceRole: iam.IRole;
+  public readonly kpiRole: iam.Role;
+  public readonly dataQualityRole: iam.Role;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -546,6 +548,201 @@ export class SecurityStack extends cdk.Stack {
       'AthenaServiceRole',
       'robofleet-athena-service-role'
     );
+
+    // ---- ROLE 8: KPI LAMBDA ----
+    // Purpose: Query Athena device_status_summary view, publish CloudWatch business metrics
+    // What it needs:
+    //   - Athena: Execute queries on robofleet workgroup
+    //   - Glue: Read table/partition metadata
+    //   - S3: Read data lake, read/write Athena results
+    //   - KMS: Decrypt S3 data + encrypt Athena results
+    //   - CloudWatch: PutMetricData (namespace RoboFleet/Fleet)
+    //   - CloudWatch Logs: Write Lambda logs
+    //
+    // TEACHING MOMENT — why can't we restrict PutMetricData to a specific namespace?
+    //   CloudWatch PutMetricData does NOT support resource-level IAM permissions.
+    //   You cannot say "allow PutMetricData only for namespace X".
+    //   The resource must always be "*". This is a CloudWatch service limitation.
+    //   Source: https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazoncloudwatch.html
+    this.kpiRole = new iam.Role(this, 'KpiLambdaRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      description: 'Role for KPI Lambda: queries Athena, publishes business metrics to CloudWatch',
+      roleName: 'robofleet-kpi-lambda-role',
+    });
+
+    // Athena permissions: Execute queries
+    this.kpiRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'athena:StartQueryExecution',
+        'athena:GetQueryExecution',
+        'athena:GetQueryResults',
+        'athena:StopQueryExecution',
+      ],
+      resources: [
+        `arn:aws:athena:${this.region}:${this.account}:workgroup/robofleet-workgroup*`,
+      ],
+    }));
+
+    // Glue permissions: Read table metadata (needed by Athena to resolve column types)
+    this.kpiRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'glue:GetDatabase',
+        'glue:GetTable',
+        'glue:GetPartitions',
+        'glue:GetPartition',
+        'glue:BatchGetPartition',
+      ],
+      resources: [
+        `arn:aws:glue:${this.region}:${this.account}:catalog`,
+        `arn:aws:glue:${this.region}:${this.account}:database/robofleet_db`,
+        `arn:aws:glue:${this.region}:${this.account}:table/robofleet_db/*`,
+      ],
+    }));
+
+    // S3 object-level permissions: read data lake + read/write Athena results
+    this.kpiRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject', 's3:PutObject'],
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*/*',
+        'arn:aws:s3:::robofleet-athena-results-*/*',
+      ],
+    }));
+
+    // S3 bucket-level permissions (separate statement — these actions require bucket ARN)
+    this.kpiRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:ListBucket', 's3:GetBucketLocation'],
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*',
+        'arn:aws:s3:::robofleet-athena-results-*',
+      ],
+    }));
+
+    // KMS: decrypt data lake + encrypt Athena result files
+    this.kpiRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['kms:Decrypt', 'kms:GenerateDataKey', 'kms:DescribeKey'],
+      resources: [this.appKey.keyArn],
+    }));
+
+    // CloudWatch: publish custom KPI metrics
+    // Resource must be "*" — CloudWatch PutMetricData has no resource-level restriction
+    this.kpiRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['cloudwatch:PutMetricData'],
+      resources: ['*'],
+    }));
+
+    // CloudWatch Logs: write Lambda execution logs
+    this.kpiRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+      resources: [
+        `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/kpi:*`,
+      ],
+    }));
+
+    // ---- ROLE 9: DATA QUALITY LAMBDA ----
+    // Purpose: Watchdog — check pipeline health, alert via SNS if checks fail
+    // What it needs (same as KPI role) PLUS:
+    //   - SNS: Publish alerts if checks fail (→ Slack + Email)
+    //
+    // TEACHING MOMENT — why does Data Quality Lambda need SNS publish but KPI Lambda doesn't?
+    //   KPI Lambda only REPORTS metrics (CloudWatch PutMetricData).
+    //   CloudWatch Alarms then fire SNS — Lambda doesn't need SNS at all.
+    //   Data Quality Lambda DIRECTLY sends SNS alerts when it detects an issue.
+    //   This is intentional: data quality failures are urgent and should bypass
+    //   the "wait for CloudWatch alarm threshold" delay.
+    this.dataQualityRole = new iam.Role(this, 'DataQualityLambdaRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      description: 'Role for Data Quality Lambda: pipeline watchdog, publishes metrics + SNS alerts',
+      roleName: 'robofleet-data-quality-lambda-role',
+    });
+
+    // Athena permissions
+    this.dataQualityRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'athena:StartQueryExecution',
+        'athena:GetQueryExecution',
+        'athena:GetQueryResults',
+        'athena:StopQueryExecution',
+      ],
+      resources: [
+        `arn:aws:athena:${this.region}:${this.account}:workgroup/robofleet-workgroup*`,
+      ],
+    }));
+
+    // Glue permissions
+    this.dataQualityRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'glue:GetDatabase',
+        'glue:GetTable',
+        'glue:GetPartitions',
+        'glue:GetPartition',
+        'glue:BatchGetPartition',
+      ],
+      resources: [
+        `arn:aws:glue:${this.region}:${this.account}:catalog`,
+        `arn:aws:glue:${this.region}:${this.account}:database/robofleet_db`,
+        `arn:aws:glue:${this.region}:${this.account}:table/robofleet_db/*`,
+      ],
+    }));
+
+    // S3 object-level permissions
+    this.dataQualityRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject', 's3:PutObject'],
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*/*',
+        'arn:aws:s3:::robofleet-athena-results-*/*',
+      ],
+    }));
+
+    // S3 bucket-level permissions
+    this.dataQualityRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:ListBucket', 's3:GetBucketLocation'],
+      resources: [
+        'arn:aws:s3:::robofleet-data-lake-*',
+        'arn:aws:s3:::robofleet-athena-results-*',
+      ],
+    }));
+
+    // KMS permissions
+    this.dataQualityRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['kms:Decrypt', 'kms:GenerateDataKey', 'kms:DescribeKey'],
+      resources: [this.appKey.keyArn],
+    }));
+
+    // CloudWatch: publish data quality metrics
+    this.dataQualityRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['cloudwatch:PutMetricData'],
+      resources: ['*'],
+    }));
+
+    // SNS: publish alerts when quality checks fail
+    // Pattern match on topic name prefix — avoids circular dep (topic is in ComputeStack)
+    this.dataQualityRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['sns:Publish'],
+      resources: [`arn:aws:sns:${this.region}:${this.account}:robofleet-*`],
+    }));
+
+    // CloudWatch Logs: write Lambda execution logs
+    this.dataQualityRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+      resources: [
+        `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/data-quality:*`,
+      ],
+    }));
 
     // ============================================
     // STEP 3: SECRETS MANAGER (Sensitive Data Storage)
