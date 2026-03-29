@@ -28,10 +28,7 @@ phases:
 artifacts:
   name: RobofleetArtifacts
   files:
-    - "cdk.out/**/*"
-    - "package.json"
-    - "tsconfig.json"
-    - "buildspec.yml"
+    - "**/*"
   discard-paths: no
 
 logs:
