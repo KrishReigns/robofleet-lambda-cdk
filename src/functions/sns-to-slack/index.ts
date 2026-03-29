@@ -150,12 +150,16 @@ function formatSlackMessage(snsMessage: SNSMessage): {
 function sendToSlack(webhookUrl: string, message: any): Promise<void> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(message);
+    const payloadBytes = Buffer.byteLength(payload);
 
+    const url = new URL(webhookUrl);
     const options = {
+      hostname: url.hostname,
+      path: url.pathname,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Content-Length': payload.length,
+        'Content-Length': payloadBytes,
       },
     };
 

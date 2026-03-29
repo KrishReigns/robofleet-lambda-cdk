@@ -294,13 +294,11 @@ export class ComputeStack extends cdk.Stack {
       functionName: 'robofleet-sns-to-slack',
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'functions/sns-to-slack/index.handler',
-      code: lambda.Code.fromAsset('src'), // Placeholder - will be replaced with actual handlers
+      code: lambda.Code.fromAsset('src'),
       role: snsToSlackRole,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
-      vpc,
-      vpcSubnets: { subnets: vpc.isolatedSubnets },
-      securityGroups: [lambdaSecurityGroup],
+      // No VPC — needs internet access to reach hooks.slack.com
       logGroup: snsToSlackLogGroup,
       environment: {
         SLACK_WEBHOOK_SECRET: 'robofleet/slack-webhook',
@@ -336,13 +334,11 @@ export class ComputeStack extends cdk.Stack {
       functionName: 'robofleet-sns-to-email',
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'functions/sns-to-email/index.handler',
-      code: lambda.Code.fromAsset('src'), // Placeholder - will be replaced with actual handlers
+      code: lambda.Code.fromAsset('src'),
       role: snsToEmailRole,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
-      vpc,
-      vpcSubnets: { subnets: vpc.isolatedSubnets },
-      securityGroups: [lambdaSecurityGroup],
+      // No VPC — needs internet access to reach SES
       logGroup: snsToEmailLogGroup,
       environment: {
         EMAIL_CONFIG_SECRET: 'robofleet/email-config',

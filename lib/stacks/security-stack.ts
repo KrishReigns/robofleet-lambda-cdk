@@ -382,17 +382,6 @@ export class SecurityStack extends cdk.Stack {
       ],
     }));
 
-    // VPC permissions: Create/manage ENIs for VPC deployment
-    this.snsToSlackRole.addToPrincipalPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'ec2:CreateNetworkInterface',
-        'ec2:DescribeNetworkInterfaces',
-        'ec2:DeleteNetworkInterface',
-      ],
-      resources: ['*'],
-    }));
-
     // ---- ROLE 5: SNS-TO-EMAIL LAMBDA ----
     // Purpose: Convert CloudWatch alarms → Email notifications via SES
     // What it needs:
@@ -450,17 +439,6 @@ export class SecurityStack extends cdk.Stack {
       resources: [
         `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/sns-to-email:*`,
       ],
-    }));
-
-    // VPC permissions: Create/manage ENIs for VPC deployment
-    this.snsToEmailRole.addToPrincipalPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'ec2:CreateNetworkInterface',
-        'ec2:DescribeNetworkInterfaces',
-        'ec2:DeleteNetworkInterface',
-      ],
-      resources: ['*'],
     }));
 
     // ---- ROLE 6: GLUE SERVICE ROLE ----
