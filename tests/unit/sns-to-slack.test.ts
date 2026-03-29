@@ -10,6 +10,7 @@ import { formatSlackMessage, handler } from '../../src/functions/sns-to-slack';
 import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { mockClient } from 'aws-sdk-client-mock';
 import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import * as https from 'https';
 
 // ============================================================
 // MOCK SETUP
@@ -21,11 +22,13 @@ const secretsMock = mockClient(SecretsManagerClient);
 
 // Mock the https module so we don't make real HTTP calls to Slack
 jest.mock('https', () => ({
-  request: jest.fn((_url, _options, callback) => {
-    // Simulate a successful Slack response (status 200)
-    const mockResponse = {
+  request: jest.fn((_url: string, _options: object, callback: (res: any) => void) => {
+    const mockResponse: {
+      statusCode: number;
+      on: (event: string, cb: () => void) => typeof mockResponse;
+    } = {
       statusCode: 200,
-      on: jest.fn((event, cb) => {
+      on: jest.fn((event: string, cb: () => void) => {
         if (event === 'end') cb();
         return mockResponse;
       }),
@@ -153,9 +156,11 @@ describe('handler()', () => {
   it('should return 200 even when Slack call fails (SNS retry protection)', async () => {
     // If Slack fails, the Lambda should still return 200
     // This prevents SNS from retrying and spamming the channel
-    const https = require('https');
-    https.request.mockImplementationOnce((_url: any, _options: any, callback: any) => {
-      const mockResponse = {
+    (https.request as jest.Mock).mockImplementationOnce((_url: string, _options: object, callback: (res: any) => void) => {
+      const mockResponse: {
+        statusCode: number;
+        on: (event: string, cb: () => void) => typeof mockResponse;
+      } = {
         statusCode: 400,
         on: jest.fn((event: string, cb: () => void) => {
           if (event === 'data') cb();

@@ -12,39 +12,33 @@ jobs:
   validate:
     name: Build, Test & Synth
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      # Step 1: Check out the code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: Set up Node.js 20 (matches Lambda runtime)
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      # Step 3: Install all dependencies including devDependencies (TypeScript, CDK CLI, Jest)
       - name: Install dependencies
         run: npm ci --include=dev
 
-      # Step 4: Compile TypeScript — catches type errors before they reach AWS
       - name: TypeScript compile check
         run: ./node_modules/.bin/tsc --noEmit
 
-      # Step 5: Run all 80 unit tests
       - name: Run unit tests
         run: npm test -- --passWithNoTests
 
-      # Step 6: Synthesize CDK stacks — validates all CloudFormation templates are valid
-      # Uses dummy account/region since we're not deploying, just validating
       - name: CDK synth (validate templates)
         run: ./node_modules/.bin/cdk synth
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1
-          # Read-only AWS credentials just for cdk synth
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
