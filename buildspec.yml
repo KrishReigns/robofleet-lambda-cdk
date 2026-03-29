@@ -11,14 +11,14 @@ phases:
       - echo "Installing dependencies..."
       - npm ci
       - echo "Compiling TypeScript..."
-      - npx tsc
+      - ./node_modules/.bin/tsc
       - echo "Running unit tests..."
       - npm run test -- --coverage --passWithNoTests
 
   build:
     commands:
       - echo "Synthesizing CDK stacks..."
-      - npx cdk synth
+      - ./node_modules/.bin/cdk synth
       - echo "Generated templates:"
       - ls -la cdk.out/*.template.json
 
