@@ -20,14 +20,14 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
-  transform: {
-    '^.+\\.tsx?$': ['ts-jest', {
-      tsconfig: {
-        esModuleInterop: true,
-        allowSyntheticDefaultImports: true,
-      },
+  globals: {
+    'ts-jest': {
+      tsconfig: 'tsconfig.json',
       isolatedModules: true,
-    }],
+    },
+  },
+  transform: {
+    '^.+\\.tsx?$': 'ts-jest',
   },
   testTimeout: 10000,
 };
