@@ -1,8 +1,5 @@
 version: 0.2
 
-# CodeBuild buildspec for Robofleet Lambda CDK project
-# Stages: pre_build (install), build (compile/test), post_build (synthesize)
-
 env:
   variables:
     NODE_ENV: production
@@ -10,53 +7,34 @@ env:
 
 phases:
   pre_build:
-    name: Install and Build
     commands:
-      # Install Node.js dependencies
       - echo "Installing dependencies..."
       - npm ci
-
-      # Compile TypeScript to JavaScript
       - echo "Compiling TypeScript..."
-      - npm run build
-
-      # Run unit tests
+      - npx tsc
       - echo "Running unit tests..."
       - npm run test -- --coverage --passWithNoTests
 
-      # Check code quality (optional - can be skipped)
-      - echo "Checking code quality..."
-      - npm run lint || true
-
   build:
-    name: CDK Synthesis
     commands:
-      # Synthesize CDK stacks to CloudFormation templates
       - echo "Synthesizing CDK stacks..."
       - npx cdk synth
-
-      # List generated templates
       - echo "Generated templates:"
       - ls -la cdk.out/*.template.json
 
   post_build:
-    name: Build Complete
     commands:
       - echo "Build and synthesis complete"
-      - echo "CloudFormation templates ready for deployment"
 
-# Output artifacts for deployment
 artifacts:
   name: RobofleetArtifacts
   files:
     - "cdk.out/**/*"
-    - "dist/**/*"
     - "package.json"
     - "tsconfig.json"
     - "buildspec.yml"
   discard-paths: no
 
-# CloudWatch Logs configuration
 logs:
   cloudwatch-logs:
     group-name: /aws/codebuild/robofleet-build
