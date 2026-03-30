@@ -97,8 +97,8 @@ export class CICDStack extends cdk.Stack {
           },
           build: {
             commands: [
-              'echo "Deploying all CDK stacks..."',
-              `./node_modules/.bin/cdk deploy --all --require-approval never --region ${cdk.Stack.of(this).region}`,
+              'echo "Deploying robofleet CDK stacks..."',
+              `./node_modules/.bin/cdk deploy RobofleetSecurityStack RobofleetStorageStack RobofleetComputeStack RobofleetCICDStack --require-approval never --region ${cdk.Stack.of(this).region}`,
               'echo "All stacks deployed successfully"',
             ],
           },
