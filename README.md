@@ -105,22 +105,21 @@ flowchart TD
 
 ---
 
-## Infrastructure — 6 CDK Stacks
+## Infrastructure — 4 Active CDK Stacks
 
 ```
-SecurityStack → NetworkingStack → StorageStack → ComputeStack → CICDStack
-                                      ↓
-                               QuickSightStack
+SecurityStack → StorageStack → ComputeStack → CICDStack
 ```
 
 | Stack | What it creates |
 |---|---|
 | **SecurityStack** | 2 KMS keys, 9 IAM roles (1 per Lambda + Glue), Secrets Manager |
-| **NetworkingStack** | VPC, private subnets, 7 VPC endpoints (no internet gateway) |
 | **StorageStack** | S3 data lake + Athena results bucket, Glue database + table |
 | **ComputeStack** | 7 Lambda functions, SNS topic, 6 CloudWatch alarms, EventBridge rules, dashboard |
 | **CICDStack** | CodeCommit → CodeBuild → CodePipeline (with manual approval gate) |
-| **QuickSightStack** | Athena DataSource, 2 QuickSight DataSets, IAM grants |
+| **QuickSightStack** _(optional)_ | Athena DataSource, 2 QuickSight DataSets, IAM grants — requires manual QuickSight activation first |
+
+> **NetworkingStack removed** — VPC + 7 interface endpoints cost ~$50/month with no benefit for a personal project. Lambdas reach AWS services via public endpoints (TLS encrypted in transit).
 
 ---
 
@@ -156,13 +155,12 @@ SecurityStack → NetworkingStack → StorageStack → ComputeStack → CICDStac
 ```
 robofleet-lambda-cdk/
 ├── bin/
-│   └── app.ts                        # CDK app — wires all 6 stacks
+│   └── app.ts                        # CDK app — wires all stacks
 ├── lib/stacks/
 │   ├── security-stack.ts             # KMS, 9 IAM roles, Secrets Manager
-│   ├── networking-stack.ts           # VPC, subnets, VPC endpoints
 │   ├── storage-stack.ts              # S3, Glue database/table, Athena workgroup
 │   ├── compute-stack.ts              # 7 Lambdas, SNS, CloudWatch, EventBridge
-│   ├── quicksight-stack.ts           # Athena DataSource + 2 DataSets
+│   ├── quicksight-stack.ts           # (optional) Athena DataSource + 2 DataSets
 │   └── cicd-stack.ts                 # CodeCommit, CodeBuild, CodePipeline
 ├── src/functions/
 │   ├── ingest/index.ts               # Telemetry ingest → S3
@@ -194,10 +192,11 @@ npm install
 # 2. Build TypeScript
 npm run build
 
-# 3. Deploy all stacks (SecurityStack activates first due to dependencies)
-npx cdk deploy --all --region us-east-1 --require-approval never
+# 3. Deploy core stacks
+npx cdk deploy RobofleetSecurityStack RobofleetStorageStack RobofleetComputeStack RobofleetCICDStack \
+  --region us-east-1 --require-approval never
 
-# 4. Create Athena views (required for KPI Lambda and QuickSight)
+# 4. Create Athena views (required for KPI Lambda)
 ./scripts/setup-athena-views.sh
 
 # 5. Upload sample data and register partitions
@@ -208,7 +207,7 @@ aws athena start-query-execution \
   --work-group robofleet-workgroup-v3 --region us-east-1
 ```
 
-> **QuickSight:** Requires one-time manual activation at the AWS console before deploying `QuickSightStack`. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+> **QuickSight (optional):** Activate QuickSight manually in the AWS console first, then deploy `RobofleetQuickSightStack`. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
@@ -260,16 +259,15 @@ Ingest Lambda ──SSE-KMS──▶ S3 Data Lake
 
 | Service | Usage | Est. Cost/Month |
 |---|---|---|
-| VPC Interface Endpoints | 7 endpoints | ~$50 |
 | Lambda | 7 functions, light traffic | ~$1 |
 | S3 | 100GB data lake | ~$2 |
 | Athena | ~10GB scanned | ~$0.05 |
 | KMS | 2 keys | ~$1 |
 | CloudWatch | 10 custom metrics, 6 alarms | ~$3 |
-| QuickSight Standard | 1 author | $9 |
-| **Total** | | **~$70/month** |
+| **Total** | | **~$7/month** |
+| QuickSight Standard _(optional)_ | 1 author | +$9 |
 
-> Tip: Stop VPC endpoints when not actively developing to reduce cost.
+> VPC + 7 interface endpoints (~$50/month) were removed — Lambdas run outside VPC and reach AWS services via public TLS endpoints.
 
 ---
 

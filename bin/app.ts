@@ -83,9 +83,10 @@ const cicdStack = new CICDStack(app, 'RobofleetCICDStack', {
   stackName: 'robofleet-cicd-stack',
 });
 
-// Stack 5: QuickSight — BI dashboards on top of Athena/Glue
-// PREREQUISITE: QuickSight account must be activated manually in the console first
-// Run after activation: npx cdk deploy RobofleetQuickSightStack
+// Stack 5: QuickSight — BI dashboards on top of Athena/Glue (OPTIONAL)
+// PREREQUISITE: QuickSight account must be activated manually in the console first.
+// This stack is NOT deployed by default (omit from --all deploys).
+// Run only after manual activation: npx cdk deploy RobofleetQuickSightStack
 const quickSightStack = new QuickSightStack(app, 'RobofleetQuickSightStack', {
   env,
   quickSightUserArn: 'arn:aws:quicksight:us-east-1:235695894002:user/default/CloudAI',
