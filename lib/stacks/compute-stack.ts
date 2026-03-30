@@ -9,13 +9,10 @@ import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as snsActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as s3 from 'aws-cdk-lib/aws-s3';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { Construct } from 'constructs';
 
 interface ComputeStackProps extends cdk.StackProps {
-  vpc: ec2.Vpc;
-  lambdaSecurityGroup: ec2.SecurityGroup;
   ingestRole: iam.Role;
   queryRole: iam.Role;
   processingRole: iam.Role;
@@ -53,7 +50,6 @@ interface ComputeStackProps extends cdk.StackProps {
  *    - ProcessingSchedule: Triggers ProcessingLambda every 10 minutes
  *
  * Encryption: All Lambda logs encrypted with KMS via CloudWatch Log Group
- * VPC: All Lambda functions run inside VPC with restricted security group
  * Monitoring: CloudWatch Dashboard with 10+ custom metrics
  */
 export class ComputeStack extends cdk.Stack {
@@ -72,8 +68,6 @@ export class ComputeStack extends cdk.Stack {
     super(scope, id, props);
 
     const {
-      vpc,
-      lambdaSecurityGroup,
       ingestRole,
       queryRole,
       processingRole,
@@ -189,9 +183,6 @@ export class ComputeStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(60),
       memorySize: 256,
       ephemeralStorageSize: cdk.Size.mebibytes(512),
-      vpc,
-      vpcSubnets: { subnets: vpc.isolatedSubnets },
-      securityGroups: [lambdaSecurityGroup],
       logGroup: ingestLogGroup,
       environment: {
         DATA_LAKE_BUCKET: dataLakeBucket.bucketName,
@@ -232,9 +223,6 @@ export class ComputeStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(120),
       memorySize: 512,
       ephemeralStorageSize: cdk.Size.mebibytes(512),
-      vpc,
-      vpcSubnets: { subnets: vpc.isolatedSubnets },
-      securityGroups: [lambdaSecurityGroup],
       logGroup: queryLogGroup,
       environment: {
         ATHENA_WORKGROUP: 'robofleet-workgroup-v3',
@@ -276,9 +264,6 @@ export class ComputeStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(180),
       memorySize: 1024,
       ephemeralStorageSize: cdk.Size.mebibytes(1024),
-      vpc,
-      vpcSubnets: { subnets: vpc.isolatedSubnets },
-      securityGroups: [lambdaSecurityGroup],
       logGroup: processingLogGroup,
       environment: {
         DATA_LAKE_BUCKET: dataLakeBucket.bucketName,

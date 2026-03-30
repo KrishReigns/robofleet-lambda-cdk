@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
-import { NetworkingStack } from '../lib/stacks/networking-stack';
 import { SecurityStack } from '../lib/stacks/security-stack';
 import { StorageStack } from '../lib/stacks/storage-stack';
 import { ComputeStack } from '../lib/stacks/compute-stack';
@@ -13,10 +12,14 @@ import { QuickSightStack } from '../lib/stacks/quicksight-stack';
  *
  * Infrastructure deployment order:
  * 1. SecurityStack: KMS keys, IAM roles, Secrets Manager
- * 2. NetworkingStack: VPC, security groups, VPC endpoints (depends on SecurityStack for KMS)
- * 3. StorageStack: S3 buckets, Glue database/table (depends on SecurityStack for appKey + glueServiceRole)
- * 4. ComputeStack (next): Lambda functions (depends on all above)
- * 5. CICDStack (next): CodePipeline, CodeBuild (depends on all above)
+ * 2. StorageStack: S3 buckets, Glue database/table (depends on SecurityStack)
+ * 3. ComputeStack: Lambda functions (depends on Security + Storage)
+ * 4. CICDStack: CodePipeline, CodeBuild
+ * 5. QuickSightStack: BI dashboards (depends on Storage)
+ *
+ * Note: NetworkingStack (VPC + endpoints) was removed to eliminate ~$50/month
+ * in VPC interface endpoint costs. All Lambdas run outside VPC and reach
+ * AWS services via public endpoints (still encrypted in transit via TLS).
  */
 
 const app = new cdk.App();
@@ -34,19 +37,7 @@ const securityStack = new SecurityStack(app, 'RobofleetSecurityStack', {
   stackName: 'robofleet-security-stack',
 });
 
-// Stack 2: Networking - Create VPC, security groups, VPC endpoints
-// Dependencies: SecurityStack (appKey for KMS-enabled VPC endpoints)
-const networkingStack = new NetworkingStack(app, 'RobofleetNetworkingStack', {
-  env,
-  appKey: securityStack.appKey,
-  description: 'Robofleet networking infrastructure (VPC, subnets, security groups, VPC endpoints)',
-  stackName: 'robofleet-networking-stack',
-});
-
-// Explicit dependency: NetworkingStack depends on SecurityStack
-networkingStack.addDependency(securityStack);
-
-// Stack 3: Storage - Create S3 buckets, Glue database and table, Athena workgroup
+// Stack 2: Storage - Create S3 buckets, Glue database and table, Athena workgroup
 // Dependencies: SecurityStack (appKey for S3 encryption, glueServiceRole, athenaServiceRole)
 const storageStack = new StorageStack(app, 'RobofleetStorageStack', {
   env,
@@ -60,12 +51,10 @@ const storageStack = new StorageStack(app, 'RobofleetStorageStack', {
 // Explicit dependency: StorageStack depends on SecurityStack
 storageStack.addDependency(securityStack);
 
-// Stack 4: Compute - Create Lambda functions, SNS topics, CloudWatch monitoring
-// Dependencies: SecurityStack (execution roles, KMS key), NetworkingStack (VPC, security groups), StorageStack (S3 buckets, Glue database)
+// Stack 3: Compute - Create Lambda functions, SNS topics, CloudWatch monitoring
+// Dependencies: SecurityStack (execution roles, KMS key), StorageStack (S3 buckets, Glue database)
 const computeStack = new ComputeStack(app, 'RobofleetComputeStack', {
   env,
-  vpc: networkingStack.vpc,
-  lambdaSecurityGroup: networkingStack.lambdaSecurityGroup,
   ingestRole: securityStack.ingestRole,
   queryRole: securityStack.queryRole,
   processingRole: securityStack.processingRole,
@@ -84,10 +73,9 @@ const computeStack = new ComputeStack(app, 'RobofleetComputeStack', {
 
 // Explicit dependencies
 computeStack.addDependency(securityStack);
-computeStack.addDependency(networkingStack);
 computeStack.addDependency(storageStack);
 
-// Stack 5: CI/CD - Create CodeCommit, CodeBuild, CodePipeline
+// Stack 4: CI/CD - Create CodeCommit, CodeBuild, CodePipeline
 // Dependencies: Only needs basic AWS setup (no specific stack dependencies)
 const cicdStack = new CICDStack(app, 'RobofleetCICDStack', {
   env,
@@ -95,7 +83,7 @@ const cicdStack = new CICDStack(app, 'RobofleetCICDStack', {
   stackName: 'robofleet-cicd-stack',
 });
 
-// Stack 6: QuickSight — BI dashboards on top of Athena/Glue
+// Stack 5: QuickSight — BI dashboards on top of Athena/Glue
 // PREREQUISITE: QuickSight account must be activated manually in the console first
 // Run after activation: npx cdk deploy RobofleetQuickSightStack
 const quickSightStack = new QuickSightStack(app, 'RobofleetQuickSightStack', {
