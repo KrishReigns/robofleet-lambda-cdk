@@ -2,7 +2,7 @@
 
 Real-time device telemetry ingestion, analytics, and BI dashboards on AWS for autonomous robot fleets. Built with TypeScript and AWS CDK.
 
-**Stack:** AWS CDK · TypeScript · Lambda · S3 · Glue · Athena · CloudWatch · SNS/SES · QuickSight · KMS · VPC
+**Stack:** AWS CDK · TypeScript · Lambda · S3 · Glue · Athena · CloudWatch · SNS/SES · QuickSight · KMS
 
 ---
 
@@ -101,7 +101,7 @@ flowchart TD
     IAM -.->|least-privilege| IL & QL & PL & KL & DQL & SL & SE
 ```
 
-> **Tip:** GitHub renders this diagram automatically. To edit it, open [diagrams.net](https://app.diagrams.net) and import `docs/architecture.drawio`.
+> **Tip:** GitHub renders this diagram automatically. To view or edit the full visual diagram, open [diagrams.net](https://app.diagrams.net) and import `docs/architecture-visual.drawio`.
 
 ---
 
@@ -127,7 +127,7 @@ SecurityStack → StorageStack → ComputeStack → CICDStack
 
 | Function | Trigger | Purpose |
 |---|---|---|
-| `robofleet-ingest` | Direct / API Gateway | Receives telemetry JSON → writes CSV to S3 |
+| `robofleet-ingest` | Direct invoke | Receives telemetry JSON → writes CSV to S3 |
 | `robofleet-query` | EventBridge 5 min | Ad-hoc Athena SQL queries on demand |
 | `robofleet-processing` | EventBridge 10 min | Aggregates raw telemetry, optimises for Athena |
 | `robofleet-sns-to-slack` | SNS | Formats and routes alerts to Slack via webhook |
@@ -177,7 +177,12 @@ robofleet-lambda-cdk/
 │   └── test_lambda_query.py          # Athena query test harness
 ├── tests/unit/                       # Jest unit tests (80 passing)
 ├── data-seed/                        # Sample telemetry CSV files (3 days)
-├── docs/                             # Architecture, deployment, troubleshooting guides
+├── docs/
+│   ├── architecture-visual.drawio    # Visual diagram (open in diagrams.net)
+│   ├── ARCHITECTURE.md               # Deep-dive architecture reference
+│   ├── DEPLOYMENT.md                 # Step-by-step deployment guide
+│   ├── TROUBLESHOOTING.md            # Common issues and fixes
+│   └── LAMBDA_TESTING.md             # Lambda invocation and verification
 └── cdk.json                          # CDK config
 ```
 
@@ -246,9 +251,8 @@ Ingest Lambda ──SSE-KMS──▶ S3 Data Lake
 | Control | Implementation |
 |---|---|
 | Encryption at rest | KMS customer-managed keys (`alias/robofleet-app-key`) on all S3 data |
-| Encryption in transit | TLS enforced on all S3 bucket policies |
-| Network isolation | Private VPC only — no internet gateway, no NAT |
-| Service connectivity | 7 VPC interface endpoints (AWS services never leave the AWS network) |
+| Encryption in transit | TLS enforced on all S3 bucket policies + all Lambda → AWS service calls |
+| No VPC required | Lambdas run outside VPC — AWS services reached via public TLS endpoints |
 | Least-privilege IAM | 1 role per Lambda — no shared roles, no `*` actions |
 | Secrets | Slack webhook + email config in Secrets Manager (never in env vars) |
 | Upload enforcement | S3 bucket policy denies any unencrypted `PutObject` |
@@ -275,6 +279,7 @@ Ingest Lambda ──SSE-KMS──▶ S3 Data Lake
 
 | Doc | Description |
 |---|---|
+| [docs/architecture-visual.drawio](docs/architecture-visual.drawio) | Visual architecture diagram — open in [diagrams.net](https://app.diagrams.net) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Deep-dive: schema, Lambda details, Athena views, monitoring |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Step-by-step deployment including QuickSight setup |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | IAM, KMS, Athena workgroup common issues and fixes |

@@ -1,0 +1,33 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "TypeScript Watch (tsc -w)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "watch"]
+    },
+    {
+      "name": "Jest Tests",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["test"]
+    },
+    {
+      "name": "CDK Synth",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "cdk", "--", "synth"]
+    },
+    {
+      "name": "CDK Deploy (4 stacks)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run", "cdk", "--",
+        "deploy",
+        "RobofleetSecurityStack",
+        "RobofleetStorageStack",
+        "RobofleetComputeStack",
+        "RobofleetCICDStack",
+        "--require-approval", "never"
+      ]
+    }
+  ]
+}
